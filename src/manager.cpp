@@ -17,6 +17,7 @@
  */
 #include "../include/protocol.hpp"
 #include <arpa/inet.h>
+#include <cstddef>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -49,42 +50,7 @@ std::map<uint8_t, int> connected_actuators;
  * Configura o socket do servidor, faz o bind e o listen.
  * Retorna o file descriptor do socket servidor.
  */
-int setup_server(int port) {
-  int server_fd;
-  struct sockaddr_in server_addr;
-
-  // Criação do file descriptor do soclet
-  server_fd = socket(AF_INET, SOCK_STREAM, 0);
-
-  if (server_fd == -1) {
-    cerr << "[MANAGER] Erro na criação do socket\n";
-    return -1;
-  }
-
-  // Configurações do endereço
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_addr.s_addr = INADDR_ANY;
-  server_addr.sin_port = htons(port);
-
-  // Associa o socket à porta (bind)
-  if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) ==
-      -1) {
-    cerr << "[MANAGER] Erro no bind da porta" << port << "\n";
-    close(server_fd);
-    return -1;
-  }
-
-  // Socket permanece em modo de escuta (listen)
-  // O valor 10 dentro de listen representa o tamanho da fila de conexões
-  // pendentes. Foi decidido de forma arbitrária
-  if (listen(server_fd, 10) == -1) {
-    cerr << "[MANAGER] Erro no listen\n";
-    close(server_fd);
-    return -1;
-  }
-
-  return server_fd;
-};
+int setup_server(int port);
 
 /**
  * Thread para lidar com mensagens recebidas de um Sensor.
@@ -123,4 +89,81 @@ int main(int argc, char *argv[]) {
   std::cout << "[MANAGER] Inicializando servidor da Estufa Inteligente...\n";
 
   return 0;
+}
+
+// Funções
+void handle_sensor(int client_socket, uint8_t device_id) {
+
+  // Recebe os dados (HELLO)
+  struct GCPHeader header;
+  uint8_t sensor_type;
+
+  int bytes_rec = recv(client_socket, &header, sizeof(GCPHeader), 0);
+
+  if (bytes_rec <= 0)
+    return;
+
+  recv(client_socket, &sensor_type, sizeof(sensor_type), 0);
+
+  cout << "[MANAGER] HELLO recebido pelo sensor do tipo" << (int)sensor_type
+       << endl;
+
+  // Envia o HELLO_ACK
+  uint8_t hello_ack[4] = {'G', 'C', 0x01, header.device_id};
+  send(client_socket, hello_ack, 4, 0);
+
+  // Espera receber o DATA_REPORT
+  while (true) {
+    int bytes_rec = recv(client_socket, &header, sizeof(header), 0);
+
+    if (bytes_rec <= 0) {
+      cout << "[MANAGER] Conexão com sensor encerrada";
+      return;
+    }
+
+    if (header.msg_type == 0x02) {
+      float data_report = {};
+      recv(client_socket, &data_report, sizeof(float), 0);
+
+      cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
+           << (float)data_report << endl;
+    }
+  }
+}
+
+int setup_server(int port) {
+  int server_fd;
+  struct sockaddr_in server_addr;
+
+  // Criação do file descriptor do soclet
+  server_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+  if (server_fd == -1) {
+    cerr << "[MANAGER] Erro na criação do socket\n";
+    return -1;
+  }
+
+  // Configurações do endereço
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = INADDR_ANY;
+  server_addr.sin_port = htons(port);
+
+  // Associa o socket à porta (bind)
+  if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) ==
+      -1) {
+    cerr << "[MANAGER] Erro no bind da porta" << port << "\n";
+    close(server_fd);
+    return -1;
+  }
+
+  // Socket permanece em modo de escuta (listen)
+  // O valor 10 dentro de listen representa o tamanho da fila de conexões
+  // pendentes. Foi decidido de forma arbitrária
+  if (listen(server_fd, 10) == -1) {
+    cerr << "[MANAGER] Erro no listen\n";
+    close(server_fd);
+    return -1;
+  }
+
+  return server_fd;
 }
