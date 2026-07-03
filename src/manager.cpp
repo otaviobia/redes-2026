@@ -18,6 +18,7 @@
 #include "../include/protocol.hpp"
 #include <arpa/inet.h>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -76,6 +77,10 @@ void handle_client(int client_socket);
  */
 void evaluate_thresholds(uint8_t sensor_id, float reading);
 
+// Protótipos de funções auxiliares
+void send_hello_ack(int client_socket, GCPHeader header);
+void receive_hello(int client_socket, GCPHeader &header, uint8_t &sensor_type);
+
 // --- Função Principal ---
 int main(int argc, char *argv[]) {
   // 1. Inicializar socket do servidor (ex: porta 8080)
@@ -91,46 +96,7 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-// Funções
-void handle_sensor(int client_socket, uint8_t device_id) {
-
-  // Recebe os dados (HELLO)
-  struct GCPHeader header;
-  uint8_t sensor_type;
-
-  int bytes_rec = recv(client_socket, &header, sizeof(GCPHeader), 0);
-
-  if (bytes_rec <= 0)
-    return;
-
-  recv(client_socket, &sensor_type, sizeof(sensor_type), 0);
-
-  cout << "[MANAGER] HELLO recebido pelo sensor do tipo" << (int)sensor_type
-       << endl;
-
-  // Envia o HELLO_ACK
-  uint8_t hello_ack[4] = {'G', 'C', 0x01, header.device_id};
-  send(client_socket, hello_ack, 4, 0);
-
-  // Espera receber o DATA_REPORT
-  while (true) {
-    int bytes_rec = recv(client_socket, &header, sizeof(header), 0);
-
-    if (bytes_rec <= 0) {
-      cout << "[MANAGER] Conexão com sensor encerrada";
-      return;
-    }
-
-    if (header.msg_type == 0x02) {
-      float data_report = {};
-      recv(client_socket, &data_report, sizeof(float), 0);
-
-      cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
-           << (float)data_report << endl;
-    }
-  }
-}
-
+// FUNÇÕES PRINCIPAIS
 int setup_server(int port) {
   int server_fd;
   struct sockaddr_in server_addr;
@@ -166,4 +132,93 @@ int setup_server(int port) {
   }
 
   return server_fd;
+}
+
+// TODO:Tratamento dos lock guards
+// TODO:Tratamento de erros
+void handle_sensor(int client_socket, uint8_t device_id) {
+
+  // Recebe os dados (HELLO)
+  struct GCPHeader header;
+  uint8_t sensor_type;
+
+  receive_hello(client_socket, header, sensor_type);
+
+  // Envia o HELLO_ACK
+  send_hello_ack(client_socket, header);
+
+  // Espera receber o DATA_REPORT
+  while (true) {
+    int bytes_rec = recv(client_socket, &header, sizeof(header), 0);
+
+    if (bytes_rec <= 0) {
+      cout << "[MANAGER] Conexão com sensor encerrada";
+      return;
+    }
+
+    if (header.msg_type == 0x02) {
+      float data_report = {};
+      recv(client_socket, &data_report, sizeof(float), 0);
+
+      cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
+           << (float)data_report << endl;
+    }
+  }
+}
+
+// TODO: Tratamento dos lock guards
+// TODO: Tratamento de erros
+void handle_actuator(int client_socket, uint8_t device_id) {
+
+  // Recebe os dados (HELLO)
+  struct GCPHeader header;
+  uint8_t sensor_type;
+
+  receive_hello(client_socket, header, sensor_type);
+  send_hello_ack(client_socket, header);
+
+  // Espera receber o SET SET_ACTUATOR_ACK
+  while (true) {
+    int bytes_rec = recv(client_socket, &header, sizeof(header), 0);
+
+    if (bytes_rec <= 0) {
+      cout << "[MANAGER] Conexão com autador encerrada";
+      return;
+    }
+
+    if (header.msg_type == 0x04) {
+      uint8_t set_actuator = {};
+      recv(client_socket, &set_actuator, sizeof(uint8_t), 0);
+
+      cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
+           << (uint8_t)set_actuator << endl;
+    }
+  }
+
+  return;
+}
+
+// FUNÇÕES AUXILIARES
+
+// Recebe o HELLO
+void receive_hello(int client_socket, GCPHeader &header, uint8_t &sensor_type) {
+
+  int bytes_rec = recv(client_socket, &header, sizeof(GCPHeader), 0);
+
+  if (bytes_rec <= 0)
+    return;
+
+  recv(client_socket, &sensor_type, sizeof(sensor_type), 0);
+
+  cout << "[MANAGER] HELLO recebido pelo sensor do tipo" << (int)sensor_type
+       << endl;
+}
+
+// Envia o HELLO_ACK
+void send_hello_ack(int client_socket, GCPHeader header) {
+
+  uint8_t hello_ack[4] = {'G', 'C', 0x01, header.device_id};
+  send(client_socket, hello_ack, 4, 0);
+
+  return;
 }
