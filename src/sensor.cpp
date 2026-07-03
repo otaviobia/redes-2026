@@ -18,6 +18,7 @@
 #include "../include/protocol.hpp"
 #include <arpa/inet.h>
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -55,13 +56,57 @@ void send_data_report(int socket_fd, float reading);
 
 // --- Função Principal ---
 int main(int argc, char *argv[]) {
-  // 1. Fazer parse dos argumentos (ID do sensor, IP, Porta do manager)
-  // 2. connect_to_manager()
-  // 3. register_sensor()
-  // 4. Loop infinito (enviando a cada 1 segundo):
-  //    a. float reading = generate_mock_reading()
-  //    b. send_data_report(socket_fd, reading)
-  //    c. std::this_thread::sleep_for(std::chrono::seconds(1))
+  if (argc != 5) {
+    cerr << "Uso: " << argv[0] << "<IP> <PORTA> <DEVICE_ID> <TIPO_SENSOR>\n";
+    cerr << "Tipos válidos: 0 (Temperatura), 1 (Umidade), 2 (CO2)\n";
+    return 1;
+  }
+
+  string ip = argv[1];
+  int port = atoi(argv[2]);
+  my_device_id = static_cast<uint8_t>(atoi(argv[3]));
+
+  int type_input = atoi(argv[4]);
+  if (type_input < 0 || type_input > 2) {
+    cerr << "[SENSOR]: Tipo inválido";
+    return 1;
+  }
+  my_type = static_cast<DeviceType>(type_input);
+
+  cout << "[SENSOR]: Inicializando com o ID " << (int)my_device_id << "e tipo "
+       << type_input;
+
+  // connect_to_manager()
+  int socket_fd = connect_to_manager(ip, port);
+  if (socket_fd < 0) {
+    return 1;
+  }
+
+  // register_sensor()
+  if (!register_sensor(socket_fd)) {
+    close(socket_fd);
+    return 1;
+  }
+
+  // Incializa a random seed
+  srand(time(NULL));
+
+  cout << "[SENSOR]: Inicializando leitura ...";
+
+  // Envia dados a cada 1 segundo
+  while (true) {
+    // gera valor aleatório para os sensores (similação)
+    float reaing = generate_mock_reading();
+
+    // envia pela rede para o manager
+    send_data_report(socket_fd, reading);
+
+    // Espera por 1 segundo
+    this_thread::sleep_for(chrono::seconds(1));
+  }
+
+  close(socket_fd);
+  return 0;
 
   std::cout << "[SENSOR] Inicializando...\n";
 
@@ -144,4 +189,47 @@ bool register_sensor(int socket_fd) {
   std::cerr << "[SENSOR] Falha no registro: Mensagem inesperada recebida ("
             << (int)ack_header.msg_type << ")\n";
   return false;
+}
+
+void send_data_report(int socket_fd, float reading) {
+
+  // TODO: Modularizar header
+  GCPHeader header{};
+  header.magic[0] = 'G';
+  header.magic[1] = 'C';
+  header.msg_type = 0x02;
+  header.device_id = my_device_id;
+
+  // Envia header
+  if (send(socket_fd, &header, sizeof(header), 0) != sizeof(header)) {
+    cerr << "[SENSOR] Falha ao enviar o Header";
+    return;
+  }
+
+  // Envia o payload
+  if (send(socket_fd, &reading, sizeof(reading), 0) != sizeof(reading)) {
+    cerr << "[SENSOR]: Falha ao enviar leitura de dados";
+    return;
+  }
+
+  cout << "[SENSOR]: Leitura enviada: " << reading << endl;
+}
+
+float generate_mock_reading() {
+  uint8_t type_value = static_cast<uint8_t>(my_type);
+
+  // TODO: Pesquisar valores plausíveis pra Umidade e CO2
+  if (type_value == 0x00) {
+    // Temperatura
+    return 20.0f + (rand() % 5);
+
+  } else if (type_value == 0x01) {
+    // Umidade
+    return 5.0f + (rand() % 10);
+  } else if (type_value == 0x02) {
+    // CO2
+    return 5.0f + (rand() % 100);
+  }
+
+  return 0.0f;
 }
