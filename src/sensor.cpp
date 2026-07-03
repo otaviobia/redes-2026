@@ -16,14 +16,15 @@
  * - Otávio Biagioni Melo (NUSP: 15482604)
  */
 #include "../include/protocol.hpp"
-#include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
-#include <unistd.h>
-#include <thread>
 #include <chrono>
+#include <iostream>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <thread>
+#include <unistd.h>
 
+using namespace std;
 // --- Variáveis Globais ---
 uint8_t my_device_id;
 DeviceType my_type;
@@ -34,7 +35,7 @@ DeviceType my_type;
  * Estabelece conexão TCP com o Gerenciador.
  * Retorna o file descriptor do socket.
  */
-int connect_to_manager(const std::string& ip, int port);
+int connect_to_manager(const std::string &ip, int port);
 
 /**
  * Envia a mensagem HELLO (0x00) e aguarda o HELLO_ACK (0x01).
@@ -53,16 +54,94 @@ float generate_mock_reading();
 void send_data_report(int socket_fd, float reading);
 
 // --- Função Principal ---
-int main(int argc, char* argv[]) {
-    // 1. Fazer parse dos argumentos (ID do sensor, IP, Porta do manager)
-    // 2. connect_to_manager()
-    // 3. register_sensor()
-    // 4. Loop infinito (enviando a cada 1 segundo):
-    //    a. float reading = generate_mock_reading()
-    //    b. send_data_report(socket_fd, reading)
-    //    c. std::this_thread::sleep_for(std::chrono::seconds(1))
-    
-    std::cout << "[SENSOR] Inicializando...\n";
-    
-    return 0;
+int main(int argc, char *argv[]) {
+  // 1. Fazer parse dos argumentos (ID do sensor, IP, Porta do manager)
+  // 2. connect_to_manager()
+  // 3. register_sensor()
+  // 4. Loop infinito (enviando a cada 1 segundo):
+  //    a. float reading = generate_mock_reading()
+  //    b. send_data_report(socket_fd, reading)
+  //    c. std::this_thread::sleep_for(std::chrono::seconds(1))
+
+  std::cout << "[SENSOR] Inicializando...\n";
+
+  return 0;
+}
+
+int connect_to_manager(const string &ip, int port) {
+  // Cria file descriptor do socket
+  int sock = socket(AF_INET, SOCK_STREAM, 0);
+
+  if (sock < 0) {
+    cerr << "[SENSOR] Erro ao criar socket \n";
+    return -1;
+  }
+
+  // Configuração da esturuta do endereço
+  struct sockaddr_in serv_addr;
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_port = htons(port);
+
+  // Converte IP de string para o formato binário
+  if (inet_pton(AF_INET, ip.c_str(), &serv_addr) <= 0) {
+    cerr << "[SENSOR]: Endereço de IP inválido";
+    close(sock);
+    return -1;
+  }
+
+  // Faz a conexão
+  if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr))) {
+    cerr << "[SENSOR] Falha ao conectar\n";
+    close(sock);
+    return -1;
+  }
+
+  return sock;
+}
+
+bool register_sensor(int socket_fd) {
+
+  // TODO: Modularizar com o que está em client
+  GCPHeader header{};
+  header.magic[0] = 'G';
+  header.magic[1] = 'C';
+  header.msg_type = 0x00; // HELLO
+  header.device_id = my_device_id;
+
+  // Envia Header
+  if (send(socket_fd, &header, sizeof(header), 0) != sizeof(header)) {
+    cerr << "[SENSOR]: Erro ao enviar o HEADER HELLO.\n";
+    return false;
+  }
+
+  uint8_t type_value = static_cast<uint8_t>(my_type);
+  if (send(socket_fd, &type_value, sizeof(type_value), 0) !=
+      sizeof(type_value)) {
+    cerr << "[SENSOR]: Erro ao enviar o payload de HELLO\n";
+    return false;
+  }
+
+  // Aguarda o HELLO_ACK do MANAGER
+  GCPHeader ack_header;
+  int bytes_rec = recv(socket_fd, &ack_header, sizeof(ack_header), 0);
+
+  if (bytes_rec <= 0) {
+    cerr << "[SENSOR]: MANEGER não respondeu ou conectou\n ";
+    return false;
+  }
+
+  if (ack_header.magic[0] != 'G' || ack_header.magic[1] != 'C') {
+    cerr << "[SENSOR] Falha no registro: servidor não respondeu (formato "
+            "inválido)";
+    return false;
+  }
+
+  if (ack_header.msg_type == 0x01) {
+    std::cout << "[SENSOR] Registrado com sucesso no MANEGER\n";
+    return true;
+  }
+
+  std::cerr << "[SENSOR] Falha no registro: Mensagem inesperada recebida ("
+            << (int)ack_header.msg_type << ")\n";
+  return false;
 }
