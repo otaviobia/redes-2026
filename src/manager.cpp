@@ -85,15 +85,65 @@ void process_client_set_threshold(int client_socket, GCPHeader &header);
 
 // --- Função Principal ---
 int main(int argc, char *argv[]) {
-  // 1. Inicializar socket do servidor (ex: porta 8080)
-  // 2. Loop infinito aceitando conexões:
-  //    a. accept()
-  //    b. Ler o primeiro pacote (HELLO ou mensagem de cliente)
-  //    c. Identificar o tipo de dispositivo/cliente
-  //    d. Disparar std::thread apropriada (handle_sensor, handle_actuator, ou
-  //    handle_client)
 
-  std::cout << "[MANAGER] Inicializando servidor da Estufa Inteligente...\n";
+  cout << "[MANAGER] Inicializando servido da Estufa Inteligente" << endl;
+
+  // Incia socket do servidor (porta 8080)
+  int server_fd = setup_server(8080);
+
+  if (server_fd == -1) {
+    return 1;
+  }
+
+  // Loop para aceitar conexões
+  while (true) {
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+
+    // aceita a conexão
+    int client_socket =
+        accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
+    if (client_socket == -1) {
+      cerr << "[MANAGER]: Erro ao aceitar conexão\n";
+      continue;
+    }
+
+    // Leitura do primeiro pacote
+    struct GCPHeader header;
+    int bytes_peeked =
+        recv(client_socket, &header, sizeof(GCPHeader), MSG_PEEK);
+
+    if (bytes_peeked < (int)sizeof(GCPHeader)) {
+      close(client_socket);
+      continue;
+    }
+
+    // Identifica o tipo do dispositivo/cliente
+    if (header.msg_type == 0x00) {
+      // Mensagem de Hello
+      uint8_t buffer[5];
+      int peek = recv(client_socket, buffer, 5, MSG_PEEK);
+
+      if (peek == 5) {
+        uint8_t msg_type = buffer[4];
+
+        if (msg_type <= 0x02) {
+          thread(handle_sensor, client_socket, header.device_id).detach();
+
+        } else {
+          thread(handle_actuator, client_socket, header.device_id).detach();
+        }
+      } else {
+        close(client_socket);
+      }
+
+    } else {
+      // Se não for HELLO, é a mensagem do cliente mandando GET ou SET_THRESHOLD
+      thread(handle_client, client_socket).detach();
+    }
+  }
+
+  close(server_fd);
 
   return 0;
 }
@@ -172,6 +222,8 @@ void handle_sensor(int client_socket, uint8_t device_id) {
         cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
              << (float)data_report << endl;
       }
+
+      evaluate_thresholds(header.device_id, data_report);
     }
   }
 }
@@ -235,6 +287,81 @@ void handle_client(int client_socket) {
       process_client_get(client_socket, header);
     } else if (header.msg_type == 0x07) { // CLIENT_SET_THRESHOLD
       process_client_set_threshold(client_socket, header);
+    }
+  }
+}
+
+void evaluate_thresholds(uint8_t sensor_id, float reading) {
+  float min_value = 0.0f;
+  float max_value = 0.0f;
+  bool has_thresholds = false;
+
+  {
+    lock_guard<mutex> lock(state_mutex);
+    if (sensor_thresholds.find(sensor_id) != sensor_thresholds.end()) {
+      min_value = sensor_thresholds[sensor_id].first;
+      max_value = sensor_thresholds[sensor_id].second;
+      has_thresholds = true;
+    }
+  }
+
+  if (!has_thresholds)
+    return;
+
+  // Lambda Function
+  auto send_command = [](uint8_t actuator_id, uint8_t state) {
+    int act_socket = -1;
+
+    // Busca o socket do atuador
+    {
+      lock_guard<mutex> lock(state_mutex);
+      if (connected_actuators.find(actuator_id) != connected_actuators.end()) {
+        act_socket = connected_actuators[actuator_id];
+      }
+    }
+
+    // Se o autador estiver conectado, envia SET_ACTUATOR_ACK
+    if (act_socket != -1) {
+      uint8_t header[4] = {'G', 'C', 0x03, actuator_id};
+      send(act_socket, header, 4, 0);
+      send(act_socket, &state, sizeof(state), 0);
+
+      cout << "[MANAGER] Comando SET_ACTUATOR enviado ao dispositivo"
+           << (int)actuator_id
+           << "--> Ação: " << (state == 0x01 ? "LIGAR" : "DESLIGAR") << endl;
+    } else {
+      cout << "[MANAGER] Aviso: Atuador" << (int)actuator_id << "offline"
+           << endl;
+    }
+  };
+
+  // Lógica do controle de histerese
+  if (sensor_id == 0x00) {
+    if (reading < min_value) {  // Temperatura
+      send_command(0x03, 0x01); // liga aquecedor
+      send_command(0x04, 0x00); // desliga resfriador
+
+    } else if (reading > max_value) {
+      send_command(0x04, 0x01); // liga resfriador
+      send_command(0x03, 0x00); // desliga aqueceor
+    } else {
+      // desliga ambos
+      send_command(0x03, 0x00);
+      send_command(0x04, 0x00);
+    }
+  } else if (sensor_id == 0x01) { // Umidade do solo
+    if (reading < min_value) {
+      send_command(0x05, 0x01); // liga irrigação
+    } else if (reading > max_value) {
+      send_command(0x05, 0x00); // desliga irrigação
+    }
+  }
+
+  else if (sensor_id == 0x02) { // CO2
+    if (reading < min_value) {
+      send_command(0x06, 0x01); // liga injetor
+    } else if (reading > max_value) {
+      send_command(0x06, 0x00); // desliga injetor
     }
   }
 }
@@ -304,6 +431,16 @@ void process_client_set_threshold(int client_socket, GCPHeader &header) {
   else {
     cout << "[MANAGER]: Threshold setados com sucesso";
   }
+
+  // Pegar a última leitura salva para configurar os atuadores
+  float current_reading = 0.0f;
+  {
+    lock_guard<mutex> lock(state_mutex);
+    if (sensor_readings.find(header.device_id) != sensor_readings.end()) {
+      current_reading = sensor_readings[header.device_id];
+    }
+  }
+  evaluate_thresholds(header.device_id, current_reading);
 
   return;
 }
