@@ -86,7 +86,7 @@ void process_client_set_threshold(int client_socket, GCPHeader &header);
 // --- Função Principal ---
 int main(int argc, char *argv[]) {
 
-  cout << "[MANAGER] Inicializando servido da Estufa Inteligente" << endl;
+  cout << "[MANAGER] Inicializando servidor da Estufa Inteligente" << endl;
 
   // Incia socket do servidor (porta 8080)
   int server_fd = setup_server(8080);
@@ -204,7 +204,7 @@ void handle_sensor(int client_socket, uint8_t device_id) {
     int bytes_rec = recv(client_socket, &header, sizeof(header), 0);
 
     if (bytes_rec <= 0) {
-      cout << "[MANAGER] Conexão com sensor encerrada";
+      cout << "[MANAGER] Conexão com sensor encerrada\n";
       close(client_socket);
       return;
     }
@@ -251,7 +251,7 @@ void handle_actuator(int client_socket, uint8_t device_id) {
 
     if (bytes_rec <= 0) {
       lock_guard<mutex> lock(state_mutex);
-      cout << "[MANAGER] Conexão com autador encerrada";
+      cout << "[MANAGER] Conexão com autador encerrada\n";
       connected_actuators.erase(header.device_id);
       close(client_socket);
       return;
@@ -388,7 +388,7 @@ void process_client_get(int client_socket, GCPHeader &header) {
   send(client_socket, &current_reading, sizeof(current_reading), 0);
 
   // DEBUG
-  cout << "[MANAGER] Valor do dispositivo" << header.device_id << "enviado";
+  cout << "[MANAGER] Valor do dispositivo " << header.device_id << " enviado\n";
 }
 
 // TODO:Melhorar o tratamento de erros
@@ -403,7 +403,7 @@ void process_client_set_threshold(int client_socket, GCPHeader &header) {
   int bytes_rec_max = recv(client_socket, &max_value, sizeof(max_value), 0);
 
   if (bytes_rec_max <= 0 || bytes_rec_min <= 0) {
-    cout << "[MANAGER]: Erro no recebimento dos thresholds";
+    cerr << "[MANAGER]: Erro no recebimento dos thresholds\n";
     close(client_socket);
     return;
   }
@@ -427,9 +427,9 @@ void process_client_set_threshold(int client_socket, GCPHeader &header) {
 
   // Debug
   if (received == 0x01)
-    cout << "[MANAGER]: Erro ao configurar o treshold";
+    cerr << "[MANAGER]: Erro ao configurar o treshold\n";
   else {
-    cout << "[MANAGER]: Threshold setados com sucesso";
+    cout << "[MANAGER]: Threshold setados com sucesso\n";
   }
 
   // Pegar a última leitura salva para configurar os atuadores
