@@ -80,6 +80,8 @@ void evaluate_thresholds(uint8_t sensor_id, float reading);
 // Protótipos de funções auxiliares
 void send_hello_ack(int client_socket, GCPHeader header);
 void receive_hello(int client_socket, GCPHeader &header, uint8_t &sensor_type);
+void process_client_get(int client_socket, GCPHeader &header);
+void process_client_set_threshold(int client_socket, GCPHeader &header);
 
 // --- Função Principal ---
 int main(int argc, char *argv[]) {
@@ -149,10 +151,12 @@ void handle_sensor(int client_socket, uint8_t device_id) {
 
   // Espera receber o DATA_REPORT
   while (true) {
+    header = {};
     int bytes_rec = recv(client_socket, &header, sizeof(header), 0);
 
     if (bytes_rec <= 0) {
       cout << "[MANAGER] Conexão com sensor encerrada";
+      close(client_socket);
       return;
     }
 
@@ -177,12 +181,14 @@ void handle_actuator(int client_socket, uint8_t device_id) {
   receive_hello(client_socket, header, sensor_type);
   send_hello_ack(client_socket, header);
 
-  // Espera receber o SET SET_ACTUATOR_ACK
+  // Espera receber o SET_ACTUATOR_ACK
   while (true) {
+    header = {};
     int bytes_rec = recv(client_socket, &header, sizeof(header), 0);
 
     if (bytes_rec <= 0) {
       cout << "[MANAGER] Conexão com autador encerrada";
+      close(client_socket);
       return;
     }
 
@@ -198,7 +204,98 @@ void handle_actuator(int client_socket, uint8_t device_id) {
   return;
 }
 
-// FUNÇÕES AUXILIARES
+/**
+ * Thread para lidar com comandos do Cliente Externo.
+ * Trata CLIENT_GET e CLIENT_SET_THRESHOLD.
+ */
+void handle_client(int client_socket) {
+  struct GCPHeader header;
+
+  // Mantendo a conexão aberta
+  while (true) {
+    int bytes_rec = recv(client_socket, &header, sizeof(GCPHeader), 0);
+
+    if (bytes_rec <= 0) {
+      cout << "[MANAGER] Conexão com o cliente encerrada\n";
+      return;
+    }
+
+    if (header.msg_type == 0x05) { // CLIENT_GET
+      process_client_get(client_socket, header);
+    } else if (header.msg_type == 0x07) { // CLIENT_SET_THRESHOLD
+      process_client_set_threshold(client_socket, header);
+    }
+  }
+}
+
+void process_client_get(int client_socket, GCPHeader &header) {
+  float current_reading = 0.0f;
+
+  {
+    // Leitura do sensor
+    lock_guard<mutex> lock(state_mutex);
+
+    if (sensor_readings.find(header.device_id) != sensor_readings.end()) {
+      current_reading = sensor_readings[header.device_id];
+    } else {
+      cout << "[MANAGER] Nenhuma leitura disponível" << endl;
+    }
+  }
+
+  // Enviando a informação (CLIENT_GET_ACK) -> Header
+  uint8_t client_get_ack[4] = {'G', 'C', 0x06, header.device_id};
+  send(client_socket, client_get_ack, sizeof(client_get_ack), 0);
+
+  // Enviando o payload -> Dado do sensor
+  send(client_socket, &current_reading, sizeof(current_reading), 0);
+
+  // DEBUG
+  cout << "[MANAGER] Valor do dispositivo" << header.device_id << "enviado";
+}
+
+// TODO:Melhorar o tratamento de erros
+void process_client_set_threshold(int client_socket, GCPHeader &header) {
+  float min_value = 0.0f;
+  float max_value = 0.0f;
+
+  uint8_t received = 0x01;
+
+  // Recebe os dados do payload
+  int bytes_rec_min = recv(client_socket, &min_value, sizeof(min_value), 0);
+  int bytes_rec_max = recv(client_socket, &max_value, sizeof(max_value), 0);
+
+  if (bytes_rec_max <= 0 || bytes_rec_min <= 0) {
+    cout << "[MANAGER]: Erro no recebimento dos thresholds";
+    close(client_socket);
+    return;
+  }
+
+  {
+    lock_guard<mutex> lock(state_mutex);
+
+    // Muda os valores de tresholds
+    sensor_thresholds[header.device_id].first = min_value;
+    sensor_thresholds[header.device_id].second = max_value;
+    received = 0x00;
+  }
+
+  // Envia o CLIENT_SET_THRESHOLD
+  // ENVIA O HEADER
+  uint8_t threshold_ack[4] = {'G', 'C', 0x08, header.device_id};
+  send(client_socket, &threshold_ack, sizeof(threshold_ack), 0);
+
+  // Envia Payload
+  send(client_socket, &received, sizeof(received), 0);
+
+  // Debug
+  if (received == 0x00)
+    cout << "[MANAGER]: Erro ao configurar o treshold";
+  else {
+    cout << "[MANAGER]: Threshold setados com sucesso";
+  }
+
+  return;
+}
 
 // Recebe o HELLO
 void receive_hello(int client_socket, GCPHeader &header, uint8_t &sensor_type) {
