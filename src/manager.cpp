@@ -136,7 +136,6 @@ int setup_server(int port) {
   return server_fd;
 }
 
-// TODO:Tratamento dos lock guards
 // TODO:Tratamento de erros
 void handle_sensor(int client_socket, uint8_t device_id) {
 
@@ -164,13 +163,19 @@ void handle_sensor(int client_socket, uint8_t device_id) {
       float data_report = {};
       recv(client_socket, &data_report, sizeof(float), 0);
 
-      cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
-           << (float)data_report << endl;
+      {
+        lock_guard<mutex> lock(state_mutex);
+
+        // Atualiza os valores recebidos
+        sensor_readings[header.device_id] = data_report;
+
+        cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
+             << (float)data_report << endl;
+      }
     }
   }
 }
 
-// TODO: Tratamento dos lock guards
 // TODO: Tratamento de erros
 void handle_actuator(int client_socket, uint8_t device_id) {
 
@@ -181,13 +186,21 @@ void handle_actuator(int client_socket, uint8_t device_id) {
   receive_hello(client_socket, header, sensor_type);
   send_hello_ack(client_socket, header);
 
+  // Registra o autador em connected_actuators
+  {
+    lock_guard<mutex> lock(state_mutex);
+    connected_actuators[header.device_id] = client_socket;
+  }
+
   // Espera receber o SET_ACTUATOR_ACK
   while (true) {
     header = {};
     int bytes_rec = recv(client_socket, &header, sizeof(header), 0);
 
     if (bytes_rec <= 0) {
+      lock_guard<mutex> lock(state_mutex);
       cout << "[MANAGER] Conexão com autador encerrada";
+      connected_actuators.erase(header.device_id);
       close(client_socket);
       return;
     }
@@ -204,10 +217,6 @@ void handle_actuator(int client_socket, uint8_t device_id) {
   return;
 }
 
-/**
- * Thread para lidar com comandos do Cliente Externo.
- * Trata CLIENT_GET e CLIENT_SET_THRESHOLD.
- */
 void handle_client(int client_socket) {
   struct GCPHeader header;
 
@@ -216,6 +225,8 @@ void handle_client(int client_socket) {
     int bytes_rec = recv(client_socket, &header, sizeof(GCPHeader), 0);
 
     if (bytes_rec <= 0) {
+      lock_guard<mutex> lock(state_mutex);
+      sensor_readings.erase(header.device_id);
       cout << "[MANAGER] Conexão com o cliente encerrada\n";
       return;
     }
@@ -288,7 +299,7 @@ void process_client_set_threshold(int client_socket, GCPHeader &header) {
   send(client_socket, &received, sizeof(received), 0);
 
   // Debug
-  if (received == 0x00)
+  if (received == 0x01)
     cout << "[MANAGER]: Erro ao configurar o treshold";
   else {
     cout << "[MANAGER]: Threshold setados com sucesso";
