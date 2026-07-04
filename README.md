@@ -23,7 +23,7 @@ Abra múltiplos terminais e siga a ordem abaixo para iniciar o sistema:
 1. Iniciar o Gerenciador (Servidor):
 
 ```bash
-./bin/manager <porta>
+./bin/manager <ip> <porta>
 ```
 
 2. Iniciar os Atuadores:
