@@ -110,8 +110,7 @@ int main(int argc, char *argv[]) {
 
     // Leitura do primeiro pacote
     struct GCPHeader header;
-    int bytes_peeked =
-        recv(client_socket, &header, sizeof(GCPHeader), MSG_PEEK);
+    int bytes_peeked = recv(client_socket, &header, sizeof(GCPHeader), MSG_PEEK | MSG_WAITALL);
 
     if (bytes_peeked < (int)sizeof(GCPHeader)) {
       close(client_socket);
@@ -122,7 +121,7 @@ int main(int argc, char *argv[]) {
     if (header.msg_type == static_cast<uint8_t>(MessageType::HELLO)) {
       // Mensagem de Hello
       uint8_t buffer[5];
-      int peek = recv(client_socket, buffer, 5, MSG_PEEK);
+      int peek = recv(client_socket, buffer, 5, MSG_PEEK | MSG_WAITALL);
 
       if (peek == 5) {
         uint8_t msg_type = buffer[4];

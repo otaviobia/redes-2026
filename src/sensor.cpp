@@ -124,7 +124,7 @@ int connect_to_manager(const string &ip, int port) {
   serv_addr.sin_port = htons(port);
 
   // Converte IP de string para o formato binário
-  if (inet_pton(AF_INET, ip.c_str(), &serv_addr) <= 0) {
+  if (inet_pton(AF_INET, ip.c_str(), &serv_addr.sin_addr) <= 0) {
     cerr << "[SENSOR]: Endereço de IP inválido";
     close(sock);
     return -1;
