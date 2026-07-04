@@ -51,7 +51,7 @@ std::map<uint8_t, int> connected_actuators;
  * Configura o socket do servidor, faz o bind e o listen.
  * Retorna o file descriptor do socket servidor.
  */
-int setup_server(int port);
+int setup_server(const std::string &ip, int port);
 
 /**
  * Thread para lidar com mensagens recebidas de um Sensor.
@@ -85,11 +85,19 @@ void process_client_set_threshold(int client_socket, GCPHeader &header);
 
 // --- Função Principal ---
 int main(int argc, char *argv[]) {
+  if (argc != 3) {
+    cerr << "Uso: " << argv[0] << " <IP> <PORTA>\n";
+    cerr << "Dica: Use 0.0.0.0 para escutar em todas as interfaces.\n";
+    return 1;
+  }
 
-  cout << "[MANAGER] Inicializando servidor da Estufa Inteligente" << endl;
+  string ip = argv[1];
+  int port = atoi(argv[2]);
 
-  // Incia socket do servidor (porta 8080)
-  int server_fd = setup_server(8080);
+  cout << "[MANAGER] Inicializando servidor da Estufa Inteligente no IP " << ip << " e Porta " << port << endl;
+
+  // Incia socket do servidor
+  int server_fd = setup_server(ip, port);
 
   if (server_fd == -1) {
     return 1;
@@ -148,9 +156,9 @@ int main(int argc, char *argv[]) {
 }
 
 // FUNÇÕES PRINCIPAIS
-int setup_server(int port) {
+int setup_server(const string &ip, int port) {
   int server_fd;
-  struct sockaddr_in server_addr;
+  struct sockaddr_in server_addr = {};
 
   // Criação do file descriptor do soclet
   server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -160,10 +168,17 @@ int setup_server(int port) {
     return -1;
   }
 
+  int opt = 1;
+  setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
   // Configurações do endereço
   server_addr.sin_family = AF_INET;
-  server_addr.sin_addr.s_addr = INADDR_ANY;
   server_addr.sin_port = htons(port);
+  if (inet_pton(AF_INET, ip.c_str(), &server_addr.sin_addr) <= 0) {
+    cerr << "[MANAGER] Endereço de IP bind inválido: " << ip << "\n";
+    close(server_fd);
+    return -1;
+  }
 
   // Associa o socket à porta (bind)
   if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) ==
