@@ -95,6 +95,8 @@ int main(int argc, char* argv[]) {
     cout << "[ACTUATOR] Inicializado com ID " << (int)my_device_id 
          << " e Tipo " << tipo_input << ". Aguardando comandos...\n";
 
+    cout << ">>> [ACTUATOR] Estado inicial: DESLIGADO (OFF).\n";
+
     while (true) {
         GCPHeader header;
         int bytes_rec = recv(sock, &header, sizeof(header), 0);
@@ -200,12 +202,18 @@ void send_ack(int socket_fd, bool success) {
 bool execute_command(uint8_t command) {
     // Simula execução de comando (só mensagem no terminal)
     if (command == 0x01) {
-        is_on = true;
-        cout << ">>> [ACTUATOR] Atuador LIGADO (ON).\n";
+        // Só imprime se estiver desligado e for ligar agora
+        if (!is_on) { 
+            is_on = true;
+            cout << ">>> [ACTUATOR] Atuador LIGADO (ON).\n";
+        }
         return true;
     } else if (command == 0x00) {
-        is_on = false;
-        cout << ">>> [ACTUATOR] Atuador DESLIGADO (OFF).\n";
+        // Só imprime se estiver ligado e for desligar agora
+        if (is_on) { 
+            is_on = false;
+            cout << ">>> [ACTUATOR] Atuador DESLIGADO (OFF).\n";
+        }
         return true;
     } else {
         cerr << ">>> [ACTUATOR] Comando desconhecido recebido pelo hardware.\n";
