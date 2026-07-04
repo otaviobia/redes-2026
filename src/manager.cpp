@@ -219,8 +219,8 @@ void handle_sensor(int client_socket, uint8_t device_id) {
         // Atualiza os valores recebidos
         sensor_readings[header.device_id] = data_report;
 
-        cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
-             << (float)data_report << endl;
+        // Evita poluição visual (deixar só pra debug)
+        // cout << "[MANAGER] Sensor" << (int)header.device_id << ": " (float)data_report << endl;
       }
 
       evaluate_thresholds(header.device_id, data_report);
