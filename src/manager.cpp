@@ -283,8 +283,8 @@ void handle_actuator(int client_socket, uint8_t device_id) {
         return;
       }
 
-      cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
-           << (uint8_t)set_actuator << endl;
+      // comentado pra evitar poluição, verifique no atuador
+      // cout << "[MANAGER] Sensor" << (int)header.device_id << ": " << (uint8_t)set_actuator << endl;
     }
   }
 
@@ -351,9 +351,8 @@ void evaluate_thresholds(uint8_t sensor_id, float reading) {
       send(act_socket, header, 4, 0);
       send(act_socket, &state, sizeof(state), 0);
 
-      cout << "[MANAGER] Comando SET_ACTUATOR enviado ao dispositivo"
-           << (int)actuator_id
-           << "--> Ação: " << (state == 0x01 ? "LIGAR" : "DESLIGAR") << endl;
+      // comentado pra evitar poluir o terminal, verifique no proprio atuador
+      // cout << "[MANAGER] Comando SET_ACTUATOR enviado ao dispositivo" << (int)actuator_id << "--> Ação: " << (state == 0x01 ? "LIGAR" : "DESLIGAR") << endl;
     } else {
       cout << "[MANAGER] Aviso: Atuador" << (int)actuator_id << "offline"
            << endl;
