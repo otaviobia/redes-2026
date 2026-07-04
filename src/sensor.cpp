@@ -119,7 +119,7 @@ int connect_to_manager(const string &ip, int port) {
   }
 
   // Configuração da esturuta do endereço
-  struct sockaddr_in serv_addr;
+  struct sockaddr_in serv_addr = {};
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_port = htons(port);
 

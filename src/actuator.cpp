@@ -133,7 +133,7 @@ int connect_to_manager(const char* ip, int port) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return socket_error("[ACTUATOR] Erro ao criar socket.", sock);
 
-    struct sockaddr_in serv_addr;
+    struct sockaddr_in serv_addr = {};
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(port);
 
