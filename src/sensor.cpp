@@ -57,7 +57,7 @@ void send_data_report(int socket_fd, float reading);
 // --- Função Principal ---
 int main(int argc, char *argv[]) {
   if (argc != 5) {
-    cerr << "Uso: " << argv[0] << "<IP> <PORTA> <DEVICE_ID> <TIPO_SENSOR>\n";
+    cerr << "Uso: " << argv[0] << " <IP> <PORTA> <DEVICE_ID> <TIPO_SENSOR>\n";
     cerr << "Tipos válidos: 0 (Temperatura), 1 (Umidade), 2 (CO2)\n";
     return 1;
   }
