@@ -296,8 +296,7 @@ void handle_client(int client_socket) {
       process_client_get(client_socket, header);
     } else if (header.msg_type ==
                static_cast<uint8_t>(
-                   MessageType::
-                       CLIENT_SET_THRESHOLD_ACK)) { // CLIENT_SET_THRESHOLD
+                   MessageType::CLIENT_SET_THRESHOLD)) { // CLIENT_SET_THRESHOLD
       process_client_set_threshold(client_socket, header);
     }
   }
@@ -409,7 +408,9 @@ void process_client_get(int client_socket, GCPHeader &header) {
   send(client_socket, &current_reading, sizeof(current_reading), 0);
 
   // DEBUG
-  cout << "[MANAGER] Valor do dispositivo " << header.device_id << " enviado\n";
+  if (current_reading != -10000.0f)
+    cout << "[MANAGER] Valor do dispositivo " << header.device_id
+         << " enviado\n";
 }
 
 void process_client_set_threshold(int client_socket, GCPHeader &header) {
