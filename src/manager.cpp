@@ -78,8 +78,8 @@ void handle_client(int client_socket);
 void evaluate_thresholds(uint8_t sensor_id, float reading);
 
 // Protótipos de funções auxiliares
-void send_hello_ack(int client_socket, GCPHeader header);
-void receive_hello(int client_socket, GCPHeader &header, uint8_t &sensor_type);
+bool send_hello_ack(int client_socket, GCPHeader header);
+bool receive_hello(int client_socket, GCPHeader &header, uint8_t &sensor_type);
 void process_client_get(int client_socket, GCPHeader &header);
 void process_client_set_threshold(int client_socket, GCPHeader &header);
 
@@ -119,7 +119,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Identifica o tipo do dispositivo/cliente
-    if (header.msg_type == 0x00) {
+    if (header.msg_type == static_cast<uint8_t>(MessageType::HELLO)) {
       // Mensagem de Hello
       uint8_t buffer[5];
       int peek = recv(client_socket, buffer, 5, MSG_PEEK);
@@ -186,17 +186,18 @@ int setup_server(int port) {
   return server_fd;
 }
 
-// TODO:Tratamento de erros
 void handle_sensor(int client_socket, uint8_t device_id) {
 
   // Recebe os dados (HELLO)
   struct GCPHeader header;
   uint8_t sensor_type;
 
-  receive_hello(client_socket, header, sensor_type);
+  if (!receive_hello(client_socket, header, sensor_type))
+    return;
 
   // Envia o HELLO_ACK
-  send_hello_ack(client_socket, header);
+  if (!send_hello_ack(client_socket, header))
+    return;
 
   // Espera receber o DATA_REPORT
   while (true) {
@@ -209,7 +210,7 @@ void handle_sensor(int client_socket, uint8_t device_id) {
       return;
     }
 
-    if (header.msg_type == 0x02) {
+    if (header.msg_type == static_cast<uint8_t>(MessageType::DATA_REPORT)) {
       float data_report = {};
       recv(client_socket, &data_report, sizeof(float), 0);
 
@@ -228,15 +229,16 @@ void handle_sensor(int client_socket, uint8_t device_id) {
   }
 }
 
-// TODO: Tratamento de erros
 void handle_actuator(int client_socket, uint8_t device_id) {
 
   // Recebe os dados (HELLO)
   struct GCPHeader header;
   uint8_t sensor_type;
 
-  receive_hello(client_socket, header, sensor_type);
-  send_hello_ack(client_socket, header);
+  if (!receive_hello(client_socket, header, sensor_type))
+    return;
+  if (!send_hello_ack(client_socket, header))
+    return;
 
   // Registra o autador em connected_actuators
   {
@@ -251,15 +253,21 @@ void handle_actuator(int client_socket, uint8_t device_id) {
 
     if (bytes_rec <= 0) {
       lock_guard<mutex> lock(state_mutex);
-      cout << "[MANAGER] Conexão com autador encerrada\n";
+      cout << "[MANAGER] Conexão com atuador encerrada\n";
       connected_actuators.erase(header.device_id);
       close(client_socket);
       return;
     }
 
-    if (header.msg_type == 0x04) {
+    if (header.msg_type ==
+        static_cast<uint8_t>(MessageType::SET_ACTUATOR_ACK)) {
       uint8_t set_actuator = {};
-      recv(client_socket, &set_actuator, sizeof(uint8_t), 0);
+      if (recv(client_socket, &set_actuator, sizeof(uint8_t), 0) !=
+          sizeof(uint8_t)) {
+        cerr << "[MANAGER] Erro ao recever ACK do atuador";
+        close(client_socket);
+        return;
+      }
 
       cout << "[MANAGER] Sensor" << (int)header.device_id << ": "
            << (uint8_t)set_actuator << endl;
@@ -283,9 +291,13 @@ void handle_client(int client_socket) {
       return;
     }
 
-    if (header.msg_type == 0x05) { // CLIENT_GET
+    if (header.msg_type ==
+        static_cast<uint8_t>(MessageType::CLIENT_GET)) { // CLIENT_GET
       process_client_get(client_socket, header);
-    } else if (header.msg_type == 0x07) { // CLIENT_SET_THRESHOLD
+    } else if (header.msg_type ==
+               static_cast<uint8_t>(
+                   MessageType::
+                       CLIENT_SET_THRESHOLD_ACK)) { // CLIENT_SET_THRESHOLD
       process_client_set_threshold(client_socket, header);
     }
   }
@@ -336,32 +348,41 @@ void evaluate_thresholds(uint8_t sensor_id, float reading) {
   };
 
   // Lógica do controle de histerese
-  if (sensor_id == 0x00) {
-    if (reading < min_value) {  // Temperatura
-      send_command(0x03, 0x01); // liga aquecedor
-      send_command(0x04, 0x00); // desliga resfriador
+  if (sensor_id == static_cast<uint8_t>(DeviceType::TEMP_SENSOR)) {
+    if (reading < min_value) { // Temperatura
+      send_command(static_cast<uint8_t>(DeviceType::HEATER),
+                   0x01); // liga aquecedor
+      send_command(static_cast<uint8_t>(DeviceType::COOLER),
+                   0x00); // desliga resfriador
 
     } else if (reading > max_value) {
-      send_command(0x04, 0x01); // liga resfriador
-      send_command(0x03, 0x00); // desliga aqueceor
+      send_command(static_cast<uint8_t>(DeviceType::COOLER),
+                   0x01); // liga resfriador
+      send_command(static_cast<uint8_t>(DeviceType::HEATER),
+                   0x00); // desliga aqueceor
     } else {
       // desliga ambos
-      send_command(0x03, 0x00);
-      send_command(0x04, 0x00);
+      send_command(static_cast<uint8_t>(DeviceType::HEATER), 0x00);
+      send_command(static_cast<uint8_t>(DeviceType::COOLER), 0x00);
     }
-  } else if (sensor_id == 0x01) { // Umidade do solo
+  } else if (sensor_id == static_cast<uint8_t>(
+                              DeviceType::HUMIDITY_SENSOR)) { // Umidade do solo
     if (reading < min_value) {
-      send_command(0x05, 0x01); // liga irrigação
+      send_command(static_cast<uint8_t>(DeviceType::SPRINKLER),
+                   0x01); // liga irrigação
     } else if (reading > max_value) {
-      send_command(0x05, 0x00); // desliga irrigação
+      send_command(static_cast<uint8_t>(DeviceType::SPRINKLER),
+                   0x00); // desliga irrigação
     }
   }
 
-  else if (sensor_id == 0x02) { // CO2
+  else if (sensor_id == static_cast<uint8_t>(DeviceType::CO2_SENSOR)) { // CO2
     if (reading < min_value) {
-      send_command(0x06, 0x01); // liga injetor
+      send_command(static_cast<uint8_t>(DeviceType::CO2_INJECTOR),
+                   0x01); // liga injetor
     } else if (reading > max_value) {
-      send_command(0x06, 0x00); // desliga injetor
+      send_command(static_cast<uint8_t>(DeviceType::CO2_INJECTOR),
+                   0x00); // desliga injetor
     }
   }
 }
@@ -391,7 +412,6 @@ void process_client_get(int client_socket, GCPHeader &header) {
   cout << "[MANAGER] Valor do dispositivo " << header.device_id << " enviado\n";
 }
 
-// TODO:Melhorar o tratamento de erros
 void process_client_set_threshold(int client_socket, GCPHeader &header) {
   float min_value = 0.0f;
   float max_value = 0.0f;
@@ -446,24 +466,30 @@ void process_client_set_threshold(int client_socket, GCPHeader &header) {
 }
 
 // Recebe o HELLO
-void receive_hello(int client_socket, GCPHeader &header, uint8_t &sensor_type) {
+bool receive_hello(int client_socket, GCPHeader &header, uint8_t &sensor_type) {
 
   int bytes_rec = recv(client_socket, &header, sizeof(GCPHeader), 0);
 
   if (bytes_rec <= 0)
-    return;
+    return false;
 
   recv(client_socket, &sensor_type, sizeof(sensor_type), 0);
 
   cout << "[MANAGER] HELLO recebido pelo sensor do tipo" << (int)sensor_type
        << endl;
+
+  return true;
 }
 
 // Envia o HELLO_ACK
-void send_hello_ack(int client_socket, GCPHeader header) {
+bool send_hello_ack(int client_socket, GCPHeader header) {
 
   uint8_t hello_ack[4] = {'G', 'C', 0x01, header.device_id};
-  send(client_socket, hello_ack, 4, 0);
+  if (send(client_socket, hello_ack, 4, 0) != sizeof(hello_ack)) {
+    cerr << "[MANAGER] Erro no envio do ACK";
+    close(client_socket);
+    return false;
+  }
 
-  return;
+  return true;
 }

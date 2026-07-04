@@ -91,12 +91,12 @@ int main(int argc, char *argv[]) {
   // Incializa a random seed
   srand(time(NULL));
 
-  cout << "[SENSOR]: Inicializando leitura ...";
+  cout << "[SENSOR] Inicializando leitura ...";
 
   // Envia dados a cada 1 segundo
   while (true) {
     // gera valor aleatório para os sensores (similação)
-    float reaing = generate_mock_reading();
+    float reading = generate_mock_reading();
 
     // envia pela rede para o manager
     send_data_report(socket_fd, reading);
@@ -106,10 +106,6 @@ int main(int argc, char *argv[]) {
   }
 
   close(socket_fd);
-  return 0;
-
-  std::cout << "[SENSOR] Inicializando...\n";
-
   return 0;
 }
 
@@ -150,7 +146,7 @@ bool register_sensor(int socket_fd) {
   GCPHeader header{};
   header.magic[0] = 'G';
   header.magic[1] = 'C';
-  header.msg_type = 0x00; // HELLO
+  header.msg_type = static_cast<uint8_t>(MessageType::HELLO); // HELLO
   header.device_id = my_device_id;
 
   // Envia Header
@@ -181,8 +177,8 @@ bool register_sensor(int socket_fd) {
     return false;
   }
 
-  if (ack_header.msg_type == 0x01) {
-    std::cout << "[SENSOR] Registrado com sucesso no MANEGER\n";
+  if (ack_header.msg_type == static_cast<uint8_t>(MessageType::HELLO_ACK)) {
+    std::cout << "[SENSOR] Registrado com sucesso no MANAGER\n";
     return true;
   }
 
@@ -193,11 +189,10 @@ bool register_sensor(int socket_fd) {
 
 void send_data_report(int socket_fd, float reading) {
 
-  // TODO: Modularizar header
   GCPHeader header{};
   header.magic[0] = 'G';
   header.magic[1] = 'C';
-  header.msg_type = 0x02;
+  header.msg_type = static_cast<uint8_t>(MessageType::DATA_REPORT);
   header.device_id = my_device_id;
 
   // Envia header
@@ -218,17 +213,16 @@ void send_data_report(int socket_fd, float reading) {
 float generate_mock_reading() {
   uint8_t type_value = static_cast<uint8_t>(my_type);
 
-  // TODO: Pesquisar valores plausíveis pra Umidade e CO2
-  if (type_value == 0x00) {
+  if (type_value == static_cast<uint8_t>(DeviceType::TEMP_SENSOR)) {
     // Temperatura
     return 20.0f + (rand() % 5);
 
-  } else if (type_value == 0x01) {
+  } else if (type_value == static_cast<uint8_t>(DeviceType::HUMIDITY_SENSOR)) {
     // Umidade
-    return 5.0f + (rand() % 10);
-  } else if (type_value == 0x02) {
+    return 50.0f + (rand() % 10);
+  } else if (type_value == static_cast<uint8_t>(DeviceType::CO2_SENSOR)) {
     // CO2
-    return 5.0f + (rand() % 100);
+    return 800.0f + (rand() % 100);
   }
 
   return 0.0f;
