@@ -388,7 +388,7 @@ void evaluate_thresholds(uint8_t sensor_id, float reading) {
 }
 
 void process_client_get(int client_socket, GCPHeader &header) {
-  float current_reading = 0.0f;
+  float current_reading = -10000.0f;
 
   {
     // Leitura do sensor
@@ -430,11 +430,16 @@ void process_client_set_threshold(int client_socket, GCPHeader &header) {
 
   {
     lock_guard<mutex> lock(state_mutex);
+    // Verifica se id existe
+    if (sensor_readings.find(header.device_id) == sensor_readings.end()) {
+      received = 0x01;
+    } else {
 
-    // Muda os valores de tresholds
-    sensor_thresholds[header.device_id].first = min_value;
-    sensor_thresholds[header.device_id].second = max_value;
-    received = 0x00;
+      // Muda os valores de tresholds
+      sensor_thresholds[header.device_id].first = min_value;
+      sensor_thresholds[header.device_id].second = max_value;
+      received = 0x00;
+    }
   }
 
   // Envia o CLIENT_SET_THRESHOLD
